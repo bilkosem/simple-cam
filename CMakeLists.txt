@@ -24,9 +24,12 @@ message(STATUS "    version: ${LIBEVENT_VERSION}")
 message(STATUS "    libraries: ${LIBEVENT_LINK_LIBRARIES}")
 message(STATUS "    include path: ${LIBEVENT_INCLUDE_DIRS}")
 
-include_directories(${CMAKE_SOURCE_DIR} ${LIBCAMERA_INCLUDE_DIRS} ${LIBEVENT_INCLUDE_DIRS})
+list(INSERT CMAKE_PREFIX_PATH 0 "/usr/lib/aarch64-linux-gnu/cmake/opencv4")
+find_package(OpenCV REQUIRED)
+message(STATUS "Found OpenCV: " ${OpenCV_INCLUDE_DIRS})
+
+include_directories(${CMAKE_SOURCE_DIR} ${LIBCAMERA_INCLUDE_DIRS} ${LIBEVENT_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 
 add_executable(simple-cam simple-cam.cpp event_loop.cpp)
 
-target_link_libraries(simple-cam PkgConfig::LIBEVENT)
-target_link_libraries(simple-cam PkgConfig::LIBCAMERA)
+target_link_libraries(simple-cam PkgConfig::LIBEVENT PkgConfig::LIBCAMERA ${OpenCV_LIBS})

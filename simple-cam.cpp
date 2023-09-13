@@ -107,17 +107,15 @@ static void processRequest(Request *request)
 		 * Image data can be accessed here, but the FrameBuffer
 		 * must be mapped by the application
 		 */
-		// Save the image to a file
 		StreamConfiguration const &cfg = stream->configuration();
 
+		// Create opencv images
 		int fd = buffer->planes()[0].fd.get();
-		
 		uint8_t *ptr = static_cast<uint8_t *>(mmap(NULL, buffer->planes()[0].length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
 		cv::Mat image(cfg.size.height, cfg.size.width, CV_8UC3, ptr, cfg.stride);
 
 		std::ostringstream oss;
 		oss << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence;
-		
 		std::string result = oss.str();
 		bool success = cv::imwrite("output/output_"+result+".jpg", image);
 
@@ -414,6 +412,7 @@ int main()
 		 */
 		ControlList &controls = request->controls();
 		//controls.set(controls::Brightness, 0.5);
+		controls.set(controls::AF_MODE, 2);	// Auto focus
 
 		requests.push_back(std::move(request));
 	}
