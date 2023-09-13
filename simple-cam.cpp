@@ -10,7 +10,8 @@
 #include <memory>
 
 #include <libcamera/libcamera.h>
-
+#include <opencv2/opencv.hpp>
+#include <sys/mman.h>
 #include "event_loop.h"
 
 #define TIMEOUT_SEC 3
@@ -80,8 +81,10 @@ static void processRequest(Request *request)
 	 * sensor along with the image as processed by the ISP.
 	 */
 	const Request::BufferMap &buffers = request->buffers();
+	std::cout << "Loop starting" << std::endl;
+
 	for (auto bufferPair : buffers) {
-		// (Unused) Stream *stream = bufferPair.first;
+		const Stream *stream = bufferPair.first;
 		FrameBuffer *buffer = bufferPair.second;
 		const FrameMetadata &metadata = buffer->metadata();
 
@@ -104,6 +107,25 @@ static void processRequest(Request *request)
 		 * Image data can be accessed here, but the FrameBuffer
 		 * must be mapped by the application
 		 */
+		// Save the image to a file
+		StreamConfiguration const &cfg = stream->configuration();
+
+		int fd = buffer->planes()[0].fd.get();
+		
+		uint8_t *ptr = static_cast<uint8_t *>(mmap(NULL, buffer->planes()[0].length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
+		cv::Mat image(cfg.size.height, cfg.size.width, CV_8UC3, ptr, cfg.stride);
+
+		std::ostringstream oss;
+		oss << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence;
+		
+		std::string result = oss.str();
+		bool success = cv::imwrite("output/output_"+result+".jpg", image);
+
+		if (success) {
+			std::cout << "Image saved successfully!" << std::endl;
+		} else {
+			std::cerr << "Could not save the image!" << std::endl;
+		}
 	}
 
 	/* Re-queue the Request to the camera. */
@@ -304,6 +326,7 @@ int main()
 	 * to a valid configuration which is as close as possible to the one
 	 * requested.
 	 */
+	streamConfig.pixelFormat = formats::RGB888;
 	config->validate();
 	std::cout << "Validated viewfinder configuration is: "
 		  << streamConfig.toString() << std::endl;
@@ -390,7 +413,7 @@ int main()
 		 * Controls can be added to a request on a per frame basis.
 		 */
 		ControlList &controls = request->controls();
-		controls.set(controls::Brightness, 0.5);
+		//controls.set(controls::Brightness, 0.5);
 
 		requests.push_back(std::move(request));
 	}
