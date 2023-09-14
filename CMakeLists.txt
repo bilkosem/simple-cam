@@ -8,6 +8,14 @@ set (CMAKE_CXX_STANDARD 17)
 
 set (CMAKE_CXX_FLAGS "-Wall -Winvalid-pch -Wnon-virtual-dtor -Wextra -Werror -Wno-unused-parameter")
 
+set(CMAKE_THREAD_LIBS_INIT "-lpthread")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
+set(CMAKE_HAVE_THREADS_LIBRARY 1)
+set(CMAKE_USE_WIN32_THREADS_INIT 0)
+set(CMAKE_USE_PTHREADS_INIT 1)
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads)
+
 find_package(PkgConfig)
 
 pkg_check_modules(LIBCAMERA REQUIRED IMPORTED_TARGET libcamera)
@@ -32,4 +40,4 @@ include_directories(${CMAKE_SOURCE_DIR} ${LIBCAMERA_INCLUDE_DIRS} ${LIBEVENT_INC
 
 add_executable(simple-cam simple-cam.cpp event_loop.cpp)
 
-target_link_libraries(simple-cam PkgConfig::LIBEVENT PkgConfig::LIBCAMERA ${OpenCV_LIBS})
+target_link_libraries(simple-cam PkgConfig::LIBEVENT PkgConfig::LIBCAMERA ${OpenCV_LIBS} ${CMAKE_THREAD_LIBS_INIT})

@@ -13,12 +13,60 @@
 #include <opencv2/opencv.hpp>
 #include <sys/mman.h>
 #include "event_loop.h"
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 #define TIMEOUT_SEC 3
 
 using namespace libcamera;
 static std::shared_ptr<Camera> camera;
 static EventLoop loop;
+
+std::mutex frameMutex;
+cv::Mat latestFrame;
+std::condition_variable frameUpdated;
+std::vector<std::unique_ptr<Request>> requests;
+
+void imageProcessingThread()
+{
+    int frameCount = 0;
+
+    while (true) {
+        {
+            std::unique_lock<std::mutex> lock(frameMutex);
+			std::cout << "--->>> Lock acquired by imageProcessingThread" << std::endl;
+
+            // Wait for the frameUpdated condition variable to be notified
+            frameUpdated.wait(lock);
+
+            // Increment the frame count to track how many times the thread is awakened
+            frameCount++;
+
+            // Print a message to indicate that a new frame is available
+            std::cout << "--- New frame available! Frame count: " << frameCount << std::endl;
+			
+        }
+		std::cout << "---<<< Lock released by imageProcessingThread" << std::endl;
+
+		if (latestFrame.empty()) {
+			// The cv::Mat is empty
+			std::cout << "--- latestFrame is empty" << std::endl;
+		} else {
+			// The cv::Mat is not empty
+			std::cout << "--- latestFrame is not empty" << std::endl;
+			cv::imwrite("output/output_"+ std::to_string(frameCount) +".jpg", latestFrame);
+		}
+
+        // Simulate some frame processing delay (you can replace this with actual processing)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+		// Reuse the request to capture new frame
+		requests[0].get()->reuse(Request::ReuseBuffers);
+		camera->queueRequest(requests[0].get());
+    }
+}
+
 
 /*
  * --------------------------------------------------------------------
@@ -47,8 +95,8 @@ static void requestComplete(Request *request)
 
 static void processRequest(Request *request)
 {
-	std::cout << std::endl
-		  << "Request completed: " << request->toString() << std::endl;
+	//std::cout << std::endl
+	//	  << "Request completed: " << request->toString() << std::endl;
 
 	/*
 	 * When a request has completed, it is populated with a metadata control
@@ -61,14 +109,14 @@ static void processRequest(Request *request)
 	 * all the metadata for inspection. A custom application can parse each
 	 * of these items and process them according to its needs.
 	 */
-	const ControlList &requestMetadata = request->metadata();
-	for (const auto &ctrl : requestMetadata) {
-		const ControlId *id = controls::controls.at(ctrl.first);
-		const ControlValue &value = ctrl.second;
+	//const ControlList &requestMetadata = request->metadata();
+	//for (const auto &ctrl : requestMetadata) {
+	//	const ControlId *id = controls::controls.at(ctrl.first);
+	//	const ControlValue &value = ctrl.second;
 
-		std::cout << "\t" << id->name() << " = " << value.toString()
-			  << std::endl;
-	}
+	//	std::cout << "\t" << id->name() << " = " << value.toString()
+	//		  << std::endl;
+	//}
 
 	/*
 	 * Each buffer has its own FrameMetadata to describe its state, or the
@@ -117,18 +165,30 @@ static void processRequest(Request *request)
 		std::ostringstream oss;
 		oss << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence;
 		std::string result = oss.str();
-		bool success = cv::imwrite("output/output_"+result+".jpg", image);
+		bool success = true; //cv::imwrite("output/output_"+result+".jpg", image);
 
 		if (success) {
 			std::cout << "Image saved successfully!" << std::endl;
 		} else {
 			std::cerr << "Could not save the image!" << std::endl;
 		}
+
+		{
+            std::lock_guard<std::mutex> lock(frameMutex);
+			std::cout << "Lock acquired by processRequest" << std::endl;
+            latestFrame = image;
+        }
+		std::cout << "Lock released by processRequest" << std::endl;
+
+        // Notify the image processing thread
+        frameUpdated.notify_one();
 	}
 
 	/* Re-queue the Request to the camera. */
-	request->reuse(Request::ReuseBuffers);
-	camera->queueRequest(request);
+	std::cout << "Reuse" << std::endl;
+
+	//request->reuse(Request::ReuseBuffers);
+	//camera->queueRequest(request);
 }
 
 /*
@@ -325,6 +385,7 @@ int main()
 	 * requested.
 	 */
 	streamConfig.pixelFormat = formats::RGB888;
+	streamConfig.bufferCount = 	1;
 	config->validate();
 	std::cout << "Validated viewfinder configuration is: "
 		  << streamConfig.toString() << std::endl;
@@ -389,7 +450,7 @@ int main()
 	 */
 	Stream *stream = streamConfig.stream();
 	const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
-	std::vector<std::unique_ptr<Request>> requests;
+	
 	for (unsigned int i = 0; i < buffers.size(); ++i) {
 		std::unique_ptr<Request> request = camera->createRequest();
 		if (!request)
@@ -460,10 +521,23 @@ int main()
 	 * In order to dispatch events received from the video devices, such
 	 * as buffer completions, an event loop has to be run.
 	 */
-	loop.timeout(TIMEOUT_SEC);
-	int ret = loop.exec();
-	std::cout << "Capture ran for " << TIMEOUT_SEC << " seconds and "
-		  << "stopped with exit status: " << ret << std::endl;
+	std::thread processingThread(imageProcessingThread);
+
+    while (true) {
+        int ret = loop.exec();
+        if (ret < 0) {
+            std::cerr << "Capture error: " << ret << std::endl;
+            break; // Exit the loop on error
+        }
+
+        // You can add other conditions to exit the loop as needed
+    }
+	processingThread.join();
+	
+	//loop.timeout(TIMEOUT_SEC);
+	//int ret = loop.exec();
+	//std::cout << "Capture ran for " << TIMEOUT_SEC << " seconds and "
+	//	  << "stopped with exit status: " << ret << std::endl;
 
 	/*
 	 * --------------------------------------------------------------------
